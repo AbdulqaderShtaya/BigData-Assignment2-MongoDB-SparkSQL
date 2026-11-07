@@ -1,0 +1,33 @@
+# IntelliJ IDEA
+.idea/
+.bsp/
+*.iml
+
+# Scala / sbt
+target/
+project/target/
+project/project/
+.bloop/
+.metals/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+*.crc
+
