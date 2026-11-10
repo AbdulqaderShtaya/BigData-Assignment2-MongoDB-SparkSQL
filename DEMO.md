@@ -1,38 +1,53 @@
-# Execution Demo — Homework 2
+# Execution Demo — Homework 2 (Scala only)
 
-This document presents the implemented pipeline, the **actual output values observed during local runs**, and the SQL used for the analysis. Commands were run on Windows 11 with MongoDB and local Spark 4.2.0.
+This document presents **observed outputs** from local execution on **10 November 2026**. Parts 1–3 ran using Scala and MongoDB; Part 4 ran using Scala and Apache Spark SQL. Counts shown here were observed in program output, not taken from sample answers.
 
-## 1. Dataset import and indexes (MongoDB)
+## 1. Dataset import and indexes (Scala + MongoDB)
 
-**Input:** `hw2-data.csv`, containing 100 student records with a comma-containing `CourseIDs` array field.
+**Input:** `hw2-data.csv` (100 rows). Its `CourseIDs` column contains commas inside square brackets, so splitting every comma would be incorrect.
 
-**Implementation:** `import_students.py` parses the course array safely, creates Python objects with correct types, inserts all records into the `university.students` MongoDB collection, creates indexes, and exports one JSON document per line to `students.json`.
+**Implementation:** `src/main/scala/MongoStudentApp.scala` safely separates the first four CSV fields and final GPA from the course list, parses typed values, drops/recreates the test collection `university.students`, calls MongoDB `insertMany`, creates the `courseIds` multikey index and `gpa` index, and exports `students.json` for Spark.
 
-**Verified observations:**
+Run the complete tested sample in IntelliJ **sbt shell**:
 
 ```text
-MongoDB documents: 100
-Indexes: _id_, courseIds_1, gpa_1
+runMain MongoStudentApp demo
 ```
 
-- `_id`: integer; primary document key
-- `dateOfBirth`: BSON date in MongoDB
-- `courseIds`: integer array; multikey-indexed
-- `gpa`: double; separately indexed
+**Actual output (10 November 2026):**
 
-### Interactive MongoDB queries
+```text
+Inserted documents: 100
+Indexes:
+  _id_: Document{{_id=1}}
+  courseIds_1: Document{{courseIds=1}}
+  gpa_1: Document{{gpa=1}}
+JSON Lines exported to students.json
+```
 
-| Program | Input | Observed matches |
+MongoDB document types: integer `_id`, strings for names, BSON Date `dateOfBirth`, integer array `courseIds`, and double `gpa`.
+
+### Interactive queries (Parts 2 and 3)
+
+| Scala command | Sample filter | Actual number of matches |
 |---|---|---:|
-| `query_by_course.py` | Course ID `103` | **36** |
-| `query_by_gpa.py` | GPA strictly greater than `3.5` | **49** |
-| `query_combined.py` | Course `103` and GPA greater than `3.5` | **9** |
+| `runMain MongoStudentApp course 103` | Course ID `103` | **36** |
+| `runMain MongoStudentApp gpa 3.5` | `gpa > 3.5` | **49** |
+| `runMain MongoStudentApp combined 103 3.5` | Course `103` AND `gpa > 3.5` | **9** |
 
-**Index verification:** the `explain()` winning execution plan for the course query contained `IXSCAN`, indicating use of the `courseIds` index.
+Each query is implemented with the MongoDB driver in **Scala**. User input is validated for integer course ID and GPA within 0.0–4.0. The course query sorts by surname; the GPA query sorts by GPA descending; the combined query supports optional filters.
+
+**Index verification:** the real `explain()` output showed `winningPlan.stage = FETCH`, `winningPlan.inputStage.stage = IXSCAN`, `indexName = courseIds_1`, and `isMultiKey = true`. The program printed:
+
+```text
+courseIds index IXSCAN used: true
+```
+
+The MongoDB driver's optional `SLF4J not found` warning means its own logging was disabled; the queries still ran successfully.
 
 ## 2. Spark schema and initial validation
 
-Spark uses **Option B** (`spark.read.json(...)`) and processes the JSON Lines export from Part 1.
+Spark uses **Option B** (`spark.read.json(...)`) and processes the JSON Lines file exported by `MongoStudentApp.scala`.
 
 ```text
 root
@@ -314,11 +329,11 @@ The output directory contains a `part-*.snappy.parquet` data file and a `_SUCCES
 | Data access | Indexed queries (`IXSCAN` shown for course filter) | DataFrame and SQL execution plans |
 | Arrays | Match a course ID in `courseIds` | `array_contains` and `explode` |
 | Aggregation | Not the primary focus of the interactive scripts | `GROUP BY`, `AVG`, `MIN`, `MAX` |
-| Complex analytics | Separate Python/MongoDB queries | Window functions, self-joins, CTEs |
-| Output | Query results and JSON Lines export | Query tables and Parquet dataset |
+| Complex analytics | Interactive Scala/MongoDB queries | Window functions, self-joins, CTEs |
+| Output | Query results and Scala-written JSON Lines export | Query tables and Parquet dataset |
 
 **Conclusion:** MongoDB provided typed document storage and efficient indexed lookups; Spark SQL made it straightforward to compute statistics and rank/compare students across groups using SQL.
 
 ---
 
-*Results recorded from local execution on 7 November 2026. Run the scripts again on the same data to reproduce them.*
+*MongoDB and Spark results re-verified on 10 November 2026 using Scala only. Run the provided Scala entry points on the same data to reproduce them.*

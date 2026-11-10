@@ -1,158 +1,127 @@
 # Big Data Homework 2 — Student Records with MongoDB & Spark SQL
 
-A reproducible two-stage data pipeline for analysing **100 student records**.
+**Scala-only implementation** of a two-stage data pipeline for 100 student records.
 
-- **Stage 1 (MongoDB):** parse a CSV containing array-valued fields, insert typed BSON documents, build indexes, and run interactive course/GPA queries.
-- **Stage 2 (Apache Spark SQL):** analyse a JSON Lines export using Spark SQL, including arrays, aggregation, window functions, joins, and Parquet output.
+- **Parts 1–3 — Scala + MongoDB Java Driver:** Parse the CSV, insert typed BSON documents into MongoDB, build indexes, and execute interactive course and GPA queries.
+- **Part 4 — Scala + Apache Spark SQL:** Load the JSON Lines output, run analytic SQL (arrays, aggregations, window functions and self-joins), and save/read Parquet.
 
-> **[View the complete demo: SQL queries, actual outputs, and findings](DEMO.md)**
+> **[View DEMO.md — verified outputs, SQL queries, and explanation](DEMO.md)**
 
-## Pipeline
+## Data flow
 
 ```text
 hw2-data.csv
-     |
-     v
-import_students.py
-     |----> MongoDB: university.students
-     |         |-- _id key
-     |         |-- courseIds multikey index
-     |         |-- gpa index
-     |         `-- interactive Python queries
-     |
-     `----> students.json (JSON Lines)
-                   |
-                   v
-       Apache Spark: StudentAnalysis.scala
-                   |
-                   v
-       SQL temp views: students, enrollments
-                   |
-                   v
+      |
+      v
+MongoStudentApp.scala  (Parts 1, 2 and 3)
+      |----> MongoDB: university.students
+      |      |-- courseIds multikey index
+      |      |-- gpa index
+      |      `-- interactive MongoDB queries / explain()
+      |
+      `----> students.json (JSON Lines)
+                    |
+                    v
+StudentAnalysis.scala (Part 4: Spark SQL)
+                    |
+                    v
+         students / enrollments views
+                    |
+                    v
         output/course_summary_parquet/
-                   |
-                   v
-        Spark reads Parquet to verify output
+                    |
+                    v
+           Spark Parquet read-back
 ```
 
-## Verified results
-
-| Check | Observed result |
-|---|---:|
-| MongoDB records imported | 100 |
-| Students enrolled in course `103` | 36 |
-| Students with `GPA > 3.5` | 49 |
-| Course `103` AND `GPA > 3.5` | 9 |
-| Student–course enrollment rows after `explode` | 218 |
-| Distinct courses in the per-course summary | 5 |
-| Students in exactly 1 / 2 / 3 courses | 8 / 66 / 26 |
-| Pairs of students sharing the same full name | 7 |
-| Students with GPA above the average of **every** enrolled course | 50 |
-| Rows read back from saved Parquet | 5 |
-
-The first two Spark filters reproduced the respective MongoDB result counts (**36** and **49**).
-
-## Project structure
+## Project files
 
 ```text
 BigData_Assignment2/
 ├── build.sbt
-├── project/                         # sbt project configuration
+├── project/build.properties
 ├── src/main/scala/
-│   └── StudentAnalysis.scala        # Spark SQL queries + Parquet write/read
-├── import_students.py               # CSV -> MongoDB + JSON Lines export
-├── query_by_course.py               # Interactive course query + explain plan
-├── query_by_gpa.py                  # Interactive GPA threshold query
-├── query_combined.py                # Course and GPA combined query
-├── hw2-data.csv                     # Original dataset
-├── students.json                    # JSON Lines export consumed by Spark
-├── output/course_summary_parquet/   # Spark's written Parquet output
+│   ├── MongoStudentApp.scala       # MongoDB import, indexes and queries (Parts 1-3)
+│   └── StudentAnalysis.scala       # Spark SQL + Parquet (Part 4)
+├── hw2-data.csv                   # Original dataset
+├── students.json                  # JSON Lines output created by Scala
+├── output/course_summary_parquet/ # Spark-generated Parquet file + _SUCCESS
 ├── README.md
 ├── DEMO.md
-├── requirements.txt
 └── .gitignore
 ```
 
-## Technologies
+## Requirements
 
-- Python 3, `pymongo`
-- MongoDB Community Server (tested with 8.0)
-- Apache Spark **4.2.0**, Spark SQL
-- Scala **2.13.18** and Java **21**
-- sbt (build configuration in `build.sbt`)
-- Parquet with Snappy compression
+- Java 21, Scala 2.13.18, sbt
+- MongoDB Community Server (tested with 8.0.x), listening on `mongodb://localhost:27017`
+- Apache Spark 4.2.0 for local execution
+- Dependencies in `build.sbt`: MongoDB synchronous Java driver 5.3.1 and Spark SQL 4.2.0
 
-## How to run
+**No Python scripts or PyMongo are needed.**
 
-### 1. MongoDB stage
+## Reproduce the demo
 
-Start your local MongoDB service, then install the Python dependency:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Import and export the data:
-
-```powershell
-python import_students.py
-```
-
-This uses `mongodb://localhost:27017` and database `university`, collection `students` in the tested local setup. The import script is designed to be safe to rerun (it recreates the collection).
-
-Run the interactive query programs:
-
-```powershell
-python query_by_course.py
-python query_by_gpa.py
-python query_combined.py
-```
-
-Suggested test inputs: course **103**, GPA threshold **3.5**, or both together. For the course query, the MongoDB explanation showed **IXSCAN** for the `courseIds` index.
-
-### 2. Spark SQL stage
-
-In **IntelliJ IDEA → sbt shell**, run:
+Open the project in IntelliJ IDEA and start its **sbt shell**:
 
 ```text
+reload
 compile
+runMain MongoStudentApp demo
+```
+
+The `demo` command **drops and recreates** `university.students`, so use only the assignment's local/test database. It then parses `hw2-data.csv`, imports all 100 records, creates indexes, writes `students.json`, and runs the three example MongoDB queries (course 103, GPA > 3.5, and combined). The interactive versions are available individually:
+
+```text
+runMain MongoStudentApp course
+runMain MongoStudentApp gpa
+runMain MongoStudentApp combined
+```
+
+The commands ask for input as necessary. For a non-interactive sample:
+
+```text
+runMain MongoStudentApp course 103
+runMain MongoStudentApp gpa 3.5
+runMain MongoStudentApp combined 103 3.5
+```
+
+To run Spark, first package the project from the sbt shell:
+
+```text
 package
 ```
 
-Then from a PowerShell terminal **in this project directory**, execute Spark Submit (adjust the Spark install location if different):
+Then run from **PowerShell** in the project root (adjust the Spark installation directory as needed):
 
 ```powershell
 & "C:\spark\spark-4.2.0-bin-hadoop3\bin\spark-submit.cmd" --class StudentAnalysis --master "local[*]" "target\scala-2.13\bigdata_assignment2_2.13-1.0.jar" "students.json"
 ```
 
-The program prints schema, filter results, analytics, and verifies the Parquet round trip. The Parquet path is `output/course_summary_parquet` relative to the working directory.
+Spark displays the schema and SQL query results and writes `output/course_summary_parquet`; it then reads the Parquet output to verify it.
 
-> **Windows note:** a shutdown warning about failing to delete a temporary Spark JAR was observed after the application had already completed with `exitCode 0`. It did **not** affect the query results or Parquet output.
+## Verified local execution (10 November 2026)
 
-## Data model
+| Check | Observed result |
+|---|---:|
+| MongoDB inserted documents | 100 |
+| MongoDB course 103 matches | 36 |
+| MongoDB GPA > 3.5 matches | 49 |
+| MongoDB combined matches | 9 |
+| Course query uses the multikey index | `IXSCAN: true` |
+| Spark students loaded | 100 |
+| Spark enrollments after `explode` | 218 |
+| Students taking 1 / 2 / 3 courses | 8 / 66 / 26 |
+| Pairs with identical first and last names | 7 |
+| GPA above every enrolled-course average | 50 |
+| Course statistics saved and read from Parquet | 5 courses |
 
-Each MongoDB document includes:
+The Scala MongoDB results and Spark SQL results agree for the overlapping course and GPA filters. The Spark run completed with `exitCode 0`. Windows printed temporary JAR cleanup warnings during shutdown; these occurred **after** successful completion and did not prevent Parquet output.
 
-- `_id` — integer
-- `firstName`, `lastName` — strings
-- `dateOfBirth` — BSON date
-- `courseIds` — array of integers
-- `gpa` — double
+## Data typing
 
-The JSON Lines export is read by Spark, where `dateOfBirth` is converted to timestamp and `courseIds` to an array of integers before registering the `students` view.
+MongoDB stores `_id` as an integer, `dateOfBirth` as BSON Date, `courseIds` as an integer array, `gpa` as a double, and names as strings. The JSON Lines export is produced by Scala. Spark converts `dateOfBirth` to a timestamp and `courseIds` to `array<int>` before registering the `students` view.
 
-## What the two stages demonstrate
+## Notes on SQL and index validation
 
-**MongoDB** supports indexed, interactive lookups on a document field or array element, using `IXSCAN` on an appropriate index. **Spark SQL** supports analytical scans, `explode`, grouping, ranking within partitions, self-joins, and persistent Parquet output.
-
-## Assignment coverage
-
-- Part 1 — import, types, indexes, JSON export
-- Part 2 — course filter, validated input, sorted output, index explanation
-- Part 3 — GPA threshold and combined course/GPA filter
-- Part 4.1 — two MongoDB filters reproduced with Spark SQL
-- Part 4.2 — `explode`, course statistics, enrollment-count distribution
-- Part 4.3 — birth-year averages, `DENSE_RANK`, duplicate full names, comparisons with all course averages
-- Part 4.4 — Parquet write and read-back verification
-
-See **[DEMO.md](DEMO.md)** for the SQL statements and outputs.
+See [DEMO.md](DEMO.md) for Spark SQL statements, summarized observed results, an explanation of ties under `DENSE_RANK`, the MongoDB `IXSCAN` evidence, and the Parquet read-back table.
